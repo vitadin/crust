@@ -171,6 +171,9 @@ func main() {
 		case "lint-rules":
 			runLintRules(os.Args[2:])
 			return
+		case "install-model":
+			runInstallModel(os.Args[2:])
+			return
 		case "uninstall":
 			runUninstall()
 			return
@@ -370,6 +373,51 @@ func runStart(args []string) {
 	fmt.Println("  crust status  - Check status")
 	fmt.Println("  crust logs    - View logs")
 	fmt.Println("  crust stop    - Stop crust")
+}
+
+// runInstallModel handles the install-model subcommand, which downloads the
+// LFM2.5 model for local inference. Useful when the user skipped the download
+// during initial setup.
+func runInstallModel(args []string) {
+	installFlags := flag.NewFlagSet("install-model", flag.ExitOnError)
+	force := installFlags.Bool("force", false, "Download without confirmation prompt")
+	_ = installFlags.Parse(args)
+
+	if runtime.GOOS != "darwin" {
+		fmt.Fprintln(os.Stderr, "install-model is only supported on macOS (LFM uses mlx for Apple Silicon)")
+		os.Exit(1)
+	}
+
+	serverDir, err := setup.DefaultServerDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !setup.IsServerReady(serverDir) {
+		fmt.Fprintln(os.Stderr, "LFM server is not set up yet.")
+		fmt.Fprintln(os.Stderr, "Run 'crust start' first to complete initial setup, then re-run this command.")
+		os.Exit(1)
+	}
+
+	if setup.ModelExists(serverDir) {
+		fmt.Printf("Model already installed: %s/models/%s\n", serverDir, setup.ModelName)
+		return
+	}
+
+	if *force {
+		fmt.Println("Downloading LFM2.5 model (~1.2 GB)...")
+		if err := setup.DownloadModel(serverDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Model downloaded successfully.")
+	} else {
+		if err := setup.PromptAndDownloadModel(serverDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
 }
 
 // runDaemon runs the actual server (called in daemon process)
@@ -735,6 +783,7 @@ Usage:
   crust check-sandbox           Verify rule-sandbox consistency
   crust repair-sandbox          Regenerate sandbox profile from rules
 
+  crust install-model        Download LFM2.5 model for local inference (macOS)
   crust uninstall            Uninstall crust completely
   crust help                 Show this help message
   crust version              Show version
@@ -752,6 +801,9 @@ Start Flags:
   --api-port int        API server port (default from config)
   --telemetry           Enable/disable telemetry (default false)
   --retention-days int  Telemetry retention in days (0=forever)
+
+Install-Model Flags:
+  --force               Download without confirmation prompt
 
 Environment Variables (preferred for secrets):
   LLM_API_KEY    API key for the LLM endpoint
