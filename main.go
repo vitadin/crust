@@ -24,6 +24,7 @@ import (
 	"github.com/BakeLens/crust/internal/rules"
 	"github.com/BakeLens/crust/internal/sandbox"
 	"github.com/BakeLens/crust/internal/security"
+	"github.com/BakeLens/crust/internal/setup"
 	"github.com/BakeLens/crust/internal/telemetry"
 	"github.com/BakeLens/crust/internal/tui"
 	"github.com/BakeLens/crust/internal/types"
@@ -256,6 +257,14 @@ func runStart(args []string) {
 		runDaemon(cfg, *logLevel, *noColor, *disableBuiltin, *endpoint, *apiKey, *dbKey,
 			*proxyPort, *apiPort, *telemetryEnabled, *retentionDays, *blockMode, *autoMode)
 		return
+	}
+
+	// Auto-setup LFM25 server on macOS (first run / version upgrade).
+	if runtime.GOOS == "darwin" {
+		if err := setup.RunAutoSetup(ServerAssets, Version); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: LFM server setup failed: %v\n", err)
+			// Non-fatal: crust works without local LFM inference.
+		}
 	}
 
 	// Interactive mode - collect configuration via TUI
