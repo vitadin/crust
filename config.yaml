@@ -44,3 +44,11 @@ rules:
 sandbox:
   enabled: false            # Enable OS-level sandbox (Landlock on Linux, Seatbelt on macOS)
   bpf_helper: ""            # Path to BPF helper socket (Linux-only, requires bpf-helper daemon)
+
+# LFM Secondary AI Security Check (Layer 1.5)
+# Sends tool calls that pass the rule engine to a local LFM model for semantic analysis.
+# lfm_security:
+#   enabled: false               # Set true to enable LFM secondary AI check
+#   endpoint: "http://127.0.0.1:8765"
+#   timeout_ms: 10000            # 10s (generous for local model cold start)
+#   fail_open: false             # false = block on LFM error (safer default)

@@ -14,14 +14,24 @@ var cfgLog = logger.New("config")
 
 // Config represents the crust configuration
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Upstream  UpstreamConfig  `yaml:"upstream"`
-	Storage   StorageConfig   `yaml:"storage"`
-	API       APIConfig       `yaml:"api"`
-	Telemetry TelemetryConfig `yaml:"telemetry"`
-	Security  SecurityConfig  `yaml:"security"`
-	Rules     RulesConfig     `yaml:"rules"`
-	Sandbox   SandboxConfig   `yaml:"sandbox"`
+	Server      ServerConfig      `yaml:"server"`
+	Upstream    UpstreamConfig    `yaml:"upstream"`
+	Storage     StorageConfig     `yaml:"storage"`
+	API         APIConfig         `yaml:"api"`
+	Telemetry   TelemetryConfig   `yaml:"telemetry"`
+	Security    SecurityConfig    `yaml:"security"`
+	Rules       RulesConfig       `yaml:"rules"`
+	Sandbox     SandboxConfig     `yaml:"sandbox"`
+	LFMSecurity LFMSecurityConfig `yaml:"lfm_security"`
+}
+
+// LFMSecurityConfig configures the LFM25 secondary AI security check.
+// Applied after the rule engine allows a tool call.
+type LFMSecurityConfig struct {
+	Enabled   bool   `yaml:"enabled"`    // false by default
+	Endpoint  string `yaml:"endpoint"`   // http://127.0.0.1:8765
+	TimeoutMs int    `yaml:"timeout_ms"` // per-request timeout (default 10000ms)
+	FailOpen  bool   `yaml:"fail_open"`  // true = allow on LFM error; false = block (default)
 }
 
 // SandboxConfig holds OS sandbox settings
@@ -160,6 +170,12 @@ func DefaultConfig() *Config {
 		},
 		Sandbox: SandboxConfig{
 			Enabled: false, // disabled by default - requires explicit opt-in
+		},
+		LFMSecurity: LFMSecurityConfig{
+			Enabled:   false,
+			Endpoint:  "http://127.0.0.1:8765",
+			TimeoutMs: 10000,
+			FailOpen:  false,
 		},
 	}
 }

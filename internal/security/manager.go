@@ -47,6 +47,11 @@ type Config struct {
 	MaxBufferSize   int             // Maximum SSE events to buffer
 	BufferTimeout   int             // Buffer timeout in seconds
 	BlockMode       types.BlockMode // types.BlockModeRemove (default) or types.BlockModeReplace
+	// LFM secondary AI security check
+	LFMEnabled   bool
+	LFMEndpoint  string
+	LFMTimeoutMs int
+	LFMFailOpen  bool
 }
 
 // Init initializes the manager
@@ -85,11 +90,19 @@ func Init(cfg Config) (*Manager, error) {
 		}
 	}
 
+	// Initialize LFM client if enabled
+	var lfmClient *LFMClient
+	if cfg.LFMEnabled && cfg.LFMEndpoint != "" {
+		lfmClient = NewLFMClient(cfg.LFMEndpoint, cfg.LFMTimeoutMs, cfg.LFMFailOpen)
+		log.Info("LFM security check enabled: %s (timeout=%dms, fail_open=%v)",
+			cfg.LFMEndpoint, cfg.LFMTimeoutMs, cfg.LFMFailOpen)
+	}
+
 	// Initialize interceptor if security is enabled and rules engine exists
 	if cfg.SecurityEnabled {
 		ruleEngine := rules.GetGlobalEngine()
 		if ruleEngine != nil {
-			m.interceptor = NewInterceptor(ruleEngine, storage)
+			m.interceptor = NewInterceptor(ruleEngine, storage, lfmClient)
 		}
 	}
 

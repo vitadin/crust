@@ -521,6 +521,10 @@ func runDaemon(cfg *config.Config, logLevel string, noColor, disableBuiltin bool
 		MaxBufferSize:   cfg.Security.MaxBufferSize,
 		BufferTimeout:   cfg.Security.BufferTimeout,
 		BlockMode:       cfg.Security.BlockMode,
+		LFMEnabled:      cfg.LFMSecurity.Enabled,
+		LFMEndpoint:     cfg.LFMSecurity.Endpoint,
+		LFMTimeoutMs:    cfg.LFMSecurity.TimeoutMs,
+		LFMFailOpen:     cfg.LFMSecurity.FailOpen,
 	}
 
 	manager, err := security.Init(managerCfg)

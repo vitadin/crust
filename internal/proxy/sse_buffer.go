@@ -273,6 +273,39 @@ func (b *BufferedSSEWriter) FlushModified(interceptor *security.Interceptor, blo
 			}
 		}
 
+		// LFM secondary check for streaming allowed calls
+		if !isBlocked {
+			if allow, reason := interceptor.CheckWithLFM(tc.Name,
+				json.RawMessage(tc.Arguments.Bytes()),
+				b.traceID, b.sessionID, b.model,
+			); !allow {
+				lfmResult := rules.MatchResult{
+					Matched:  true,
+					RuleName: "lfm:security-check",
+					Action:   rules.ActionBlock,
+					Message:  reason,
+				}
+				isBlocked = true
+				tcLog.WasBlocked = true
+				tcLog.BlockedByRule = "lfm:security-check"
+				blockedCalls = append(blockedCalls, security.BlockedToolCall{
+					ToolCall: telemetry.ToolCall{
+						ID:        tc.ID,
+						Name:      tc.Name,
+						Arguments: json.RawMessage(tc.Arguments.Bytes()),
+					},
+					MatchResult: lfmResult,
+				})
+				if useReplaceMode {
+					replacedIndices[idx] = lfmResult
+					log.Warn("[BUFFERED-LFM] Replaced tool call: %s — %s", tc.Name, reason)
+				} else {
+					blockedIndices[idx] = lfmResult
+					log.Warn("[BUFFERED-LFM] Blocked tool call: %s — %s", tc.Name, reason)
+				}
+			}
+		}
+
 		if storage != nil {
 			if err := storage.LogToolCall(tcLog); err != nil {
 				log.Debug("Failed to log tool call: %v", err)

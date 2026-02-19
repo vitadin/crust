@@ -88,7 +88,7 @@ func createTestInterceptor(t *testing.T, rulesYAML string) (*Interceptor, func()
 		t.Fatalf("Failed to create storage: %v", err)
 	}
 
-	interceptor := NewInterceptor(engine, storage)
+	interceptor := NewInterceptor(engine, storage, nil)
 
 	cleanup := func() {
 		storage.Close()

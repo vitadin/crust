@@ -36,7 +36,7 @@ func createBenchInterceptor(b *testing.B) (*Interceptor, func()) {
 		b.Fatalf("Failed to create storage: %v", err)
 	}
 
-	interceptor := NewInterceptor(engine, storage)
+	interceptor := NewInterceptor(engine, storage, nil)
 	cleanup := func() {
 		storage.Close()
 		os.RemoveAll(tempDir)
@@ -288,6 +288,6 @@ func BenchmarkNewInterceptor(b *testing.B) {
 			UserRulesDir:   tempDir,
 			DisableBuiltin: false,
 		})
-		_ = NewInterceptor(engine, nil)
+		_ = NewInterceptor(engine, nil, nil)
 	}
 }

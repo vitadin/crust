@@ -12,19 +12,31 @@ import (
 
 // Interceptor handles tool call interception and response modification
 type Interceptor struct {
-	engine  *rules.Engine
-	storage *telemetry.Storage
-	enabled atomic.Bool
+	engine    *rules.Engine
+	storage   *telemetry.Storage
+	lfmClient *LFMClient // nil when LFM check is disabled
+	enabled   atomic.Bool
 }
 
-// NewInterceptor creates a new interceptor
-func NewInterceptor(engine *rules.Engine, storage *telemetry.Storage) *Interceptor {
+// NewInterceptor creates a new interceptor. Pass a non-nil lfmClient to enable
+// the LFM secondary AI security check for rule-allowed tool calls.
+func NewInterceptor(engine *rules.Engine, storage *telemetry.Storage, lfmClient *LFMClient) *Interceptor {
 	i := &Interceptor{
-		engine:  engine,
-		storage: storage,
+		engine:    engine,
+		storage:   storage,
+		lfmClient: lfmClient,
 	}
 	i.enabled.Store(true)
 	return i
+}
+
+// CheckWithLFM performs the LFM secondary security check for a single tool call.
+// Returns (allow=true, reason="") if the LFM client is not configured.
+func (i *Interceptor) CheckWithLFM(toolName string, args json.RawMessage, traceID, sessionID, model string) (bool, string) {
+	if i.lfmClient == nil {
+		return true, ""
+	}
+	return i.lfmClient.CheckToolCall(toolName, args, traceID, sessionID, model)
 }
 
 // SetEnabled enables or disables the interceptor
@@ -339,6 +351,31 @@ func (i *Interceptor) evaluateToolCall(
 			log.Warn("[Layer1] Blocked: %s (rule: %s)", tc.Name, matchResult.RuleName)
 		}
 		return matchResult, true
+	}
+
+	// LFM secondary check for tool calls that passed the rule engine
+	if i.lfmClient != nil {
+		lfmAllow, lfmReason := i.lfmClient.CheckToolCall(tc.Name, tc.Arguments, traceID, sessionID, model)
+		if !lfmAllow {
+			lfmResult := rules.MatchResult{
+				Matched:  true,
+				RuleName: "lfm:security-check",
+				Action:   rules.ActionBlock,
+				Message:  lfmReason,
+			}
+			result.BlockedToolCalls = append(result.BlockedToolCalls, BlockedToolCall{
+				ToolCall:    tc,
+				MatchResult: lfmResult,
+			})
+			result.HasBlockedCalls = true
+			RecordLayer1Block()
+			if useReplaceMode {
+				log.Warn("[Layer1-LFM] Replaced: %s — %s", tc.Name, lfmReason)
+			} else {
+				log.Warn("[Layer1-LFM] Blocked: %s — %s", tc.Name, lfmReason)
+			}
+			return lfmResult, true
+		}
 	}
 
 	result.AllowedToolCalls = append(result.AllowedToolCalls, tc)
