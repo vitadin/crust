@@ -5,6 +5,12 @@ BINARY_NAME = crust
 BUILD_DIR = build
 LDFLAGS = -ldflags "-s -w -X main.Version=$(VERSION)"
 
+# On macOS, Homebrew LLVM clang cannot link against the macOS 15 SDK (.tbd files).
+# Force the system Xcode clang instead.
+ifeq ($(shell uname -s),Darwin)
+export CC := /usr/bin/clang
+endif
+
 # Platforms for release
 PLATFORMS = darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
