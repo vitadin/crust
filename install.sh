@@ -9,6 +9,10 @@
 # Or with options:
 #   curl -fsSL https://raw.githubusercontent.com/vitadin/crust/main/install.sh | bash -s -- --version v1.0.0
 #
+# Developer / local testing:
+#   bash install.sh --skip-model-download
+#   CRUST_SKIP_MODEL_DOWNLOAD=1 bash install.sh
+#
 
 set -e
 
@@ -25,14 +29,22 @@ GITHUB_REPO="vitadin/crust"
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_NAME="crust"
 DATA_DIR="$HOME/.crust"
+LFM_SERVER_DIR="$DATA_DIR/lfm25_server"
+MODEL_NAME="LFM2.5-1.2B-Thinking-MLX-8bit"
+MODEL_DIR="$LFM_SERVER_DIR/models/$MODEL_NAME"
 
 # Parse arguments
 VERSION="latest"
+SKIP_MODEL_DOWNLOAD=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --version|-v)
             VERSION="$2"
             shift 2
+            ;;
+        --skip-model-download)
+            SKIP_MODEL_DOWNLOAD=true
+            shift
             ;;
         --help|-h)
             echo "Crust Installer"
@@ -40,8 +52,12 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: curl -fsSL https://raw.githubusercontent.com/vitadin/crust/main/install.sh | bash"
             echo ""
             echo "Options:"
-            echo "  --version, -v    Install specific version (default: latest)"
-            echo "  --help, -h       Show this help"
+            echo "  --version, -v          Install specific version (default: latest)"
+            echo "  --skip-model-download  Skip downloading the LFM model (model already present)"
+            echo "  --help, -h             Show this help"
+            echo ""
+            echo "Environment variables:"
+            echo "  CRUST_SKIP_MODEL_DOWNLOAD=1   Same as --skip-model-download"
             exit 0
             ;;
         *)
@@ -50,6 +66,11 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Env var override
+if [[ "${CRUST_SKIP_MODEL_DOWNLOAD:-}" == "1" ]]; then
+    SKIP_MODEL_DOWNLOAD=true
+fi
 
 # Print banner
 echo -e "${BOLD}"
@@ -142,6 +163,72 @@ get_latest_version() {
     echo "${version:-main}"
 }
 
+# Ensure uv is available, install if missing
+ensure_uv() {
+    if command -v uv &> /dev/null; then
+        return 0
+    fi
+    echo -e "${YELLOW}Installing uv (Python package manager)...${NC}"
+    if command -v curl &> /dev/null; then
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+    else
+        wget -qO- https://astral.sh/uv/install.sh | sh
+    fi
+    # uv installs to ~/.local/bin by default; add to PATH for this session
+    export PATH="$HOME/.local/bin:$PATH"
+    if ! command -v uv &> /dev/null; then
+        echo -e "${RED}Error: uv installation failed. Install manually: https://docs.astral.sh/uv/${NC}"
+        exit 1
+    fi
+    echo -e "  ${GREEN}uv installed${NC}"
+}
+
+# Clone the crust repo into a target directory at $VERSION
+clone_crust_source() {
+    local dest="$1"
+    if ! git clone --depth 1 --branch "$VERSION" "https://github.com/${GITHUB_REPO}.git" "$dest" 2>/dev/null; then
+        git clone --depth 1 "https://github.com/${GITHUB_REPO}.git" "$dest"
+    fi
+}
+
+# Set up the LFM25 inference server (macOS / Apple Silicon only)
+install_lfm_server() {
+    local src="$1"   # absolute path to services/lfm25_server in source tree
+
+    echo ""
+    echo -e "${YELLOW}Setting up LFM25 inference server...${NC}"
+
+    # Copy source files to data dir (exclude generated / large dirs)
+    mkdir -p "$LFM_SERVER_DIR"
+    cp -r "$src/." "$LFM_SERVER_DIR/"
+    rm -rf "$LFM_SERVER_DIR/models" \
+           "$LFM_SERVER_DIR/.venv" \
+           "$LFM_SERVER_DIR/.cache"
+    find "$LFM_SERVER_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+    find "$LFM_SERVER_DIR" -name "*.pyc" -delete 2>/dev/null || true
+
+    # Install Python dependencies via uv
+    ensure_uv
+    echo -e "${YELLOW}Installing Python dependencies...${NC}"
+    (cd "$LFM_SERVER_DIR" && uv sync)
+
+    # Download model — skip automatically if already present
+    if [[ -d "$MODEL_DIR" && -n "$(ls -A "$MODEL_DIR" 2>/dev/null)" ]]; then
+        echo -e "  ${GREEN}Model already present, skipping download${NC}"
+    elif [[ "$SKIP_MODEL_DOWNLOAD" == true ]]; then
+        echo -e "  ${YELLOW}Skipping model download (--skip-model-download)${NC}"
+        echo -e "  To download later:"
+        echo -e "    cd ${LFM_SERVER_DIR} && uv run python download_model.py"
+    else
+        echo -e "${YELLOW}Downloading LFM2.5 model from HuggingFace (~1.2 GB)...${NC}"
+        (cd "$LFM_SERVER_DIR" && uv run python download_model.py)
+        echo -e "  ${GREEN}Model downloaded${NC}"
+    fi
+
+    echo -e "  Server: ${BLUE}${LFM_SERVER_DIR}${NC}"
+    echo -e "  Model:  ${BLUE}${MODEL_DIR}${NC}"
+}
+
 # Main installation
 main() {
     echo -e "${YELLOW}Detecting system...${NC}"
@@ -163,7 +250,7 @@ main() {
         exit 1
     fi
 
-    echo -e "  OS: ${GREEN}$os${NC}"
+    echo -e "  OS:   ${GREEN}$os${NC}"
     echo -e "  Arch: ${GREEN}$arch${NC}"
     echo ""
 
@@ -177,10 +264,13 @@ main() {
     echo -e "  Version: ${GREEN}$VERSION${NC}"
     echo ""
 
-    # Create temp directory
+    # Create temp directory (cleaned up automatically on exit)
     local tmp_dir
     tmp_dir=$(mktemp -d)
     trap 'rm -rf "$tmp_dir"' EXIT
+
+    # Track whether we have a full source clone available
+    local src_dir=""
 
     # Try downloading pre-built binary from GitHub Releases
     local archive_name="crust_${VERSION#v}_${os}_${arch}.tar.gz"
@@ -198,11 +288,9 @@ main() {
     if [ "$installed" = false ]; then
         echo -e "${YELLOW}Pre-built binary not available, building from source...${NC}"
         check_source_requirements
-        if ! git clone --depth 1 --branch "$VERSION" "https://github.com/${GITHUB_REPO}.git" "$tmp_dir/crust-src" 2>/dev/null; then
-            git clone --depth 1 "https://github.com/${GITHUB_REPO}.git" "$tmp_dir/crust-src"
-        fi
-        cd "$tmp_dir/crust-src"
-        go build -ldflags "-X main.Version=${VERSION#v}" -o "$tmp_dir/crust" .
+        clone_crust_source "$tmp_dir/crust-src"
+        src_dir="$tmp_dir/crust-src"
+        (cd "$src_dir" && go build -ldflags "-X main.Version=${VERSION#v}" -o "$tmp_dir/crust" .)
     fi
 
     # Install binary
@@ -211,10 +299,23 @@ main() {
     mv "$tmp_dir/crust" "$INSTALL_DIR/$BINARY_NAME"
     chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
-    # Create data directory
+    # Create data directory structure
     echo -e "${YELLOW}Creating data directory...${NC}"
     mkdir -p "$DATA_DIR"
     mkdir -p "$DATA_DIR/rules.d"
+
+    # LFM25 inference server (macOS only — mlx requires Apple Silicon)
+    if [[ "$os" == "darwin" ]]; then
+        # If we only downloaded a binary, we still need the Python source
+        if [[ -z "$src_dir" ]]; then
+            echo -e "${YELLOW}Fetching server source...${NC}"
+            clone_crust_source "$tmp_dir/crust-src"
+            src_dir="$tmp_dir/crust-src"
+        fi
+        install_lfm_server "$src_dir/services/lfm25_server"
+    else
+        echo -e "${YELLOW}Note: LFM25 local inference is macOS-only (mlx). Skipping on Linux.${NC}"
+    fi
 
     # Verify installation
     echo ""
@@ -239,6 +340,12 @@ main() {
     echo "  crust logs -f                  # Follow logs"
     echo "  crust stop                     # Stop crust"
     echo ""
+    if [[ "$os" == "darwin" ]]; then
+        echo -e "${BOLD}LFM25 Server:${NC}"
+        echo ""
+        echo "  make -C $LFM_SERVER_DIR run ARGS=\"--config config.yaml\""
+        echo ""
+    fi
 }
 
 main "$@"
