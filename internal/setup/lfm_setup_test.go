@@ -404,3 +404,29 @@ func checkFile(t *testing.T, base, rel, wantContent string) {
 		t.Errorf("file %q content = %q, want %q", path, data, wantContent)
 	}
 }
+
+func TestModelExistsByDir(t *testing.T) {
+	dir := t.TempDir()
+	modelName := "custom-model"
+	modelDir := filepath.Join(dir, "models", modelName)
+
+	if setup.ModelExistsByDir(dir, modelName) {
+		t.Error("should be false when dir missing")
+	}
+
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Empty dir -> false
+	if setup.ModelExistsByDir(dir, modelName) {
+		t.Error("should be false when dir empty")
+	}
+
+	if err := os.WriteFile(filepath.Join(modelDir, "file"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// With file -> true
+	if !setup.ModelExistsByDir(dir, modelName) {
+		t.Error("should be true when dir has files")
+	}
+}

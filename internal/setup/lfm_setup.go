@@ -153,35 +153,63 @@ func InstallDeps(serverDir string) error {
 	return nil
 }
 
-// ModelExists reports whether the LFM2.5 model directory is present and
-// non-empty inside serverDir.
+// ModelExists reports whether the default LFM2.5 model directory is present.
 func ModelExists(serverDir string) bool {
-	modelDir := filepath.Join(serverDir, "models", ModelName)
+	def := DefaultCatalogModel()
+	if def == nil {
+		return false
+	}
+	return ModelExistsByDir(serverDir, def.DirName)
+}
+
+// ModelExistsByDir reports whether a specific model directory exists and is non-empty.
+func ModelExistsByDir(serverDir, dirName string) bool {
+	modelDir := filepath.Join(serverDir, "models", dirName)
 	entries, err := os.ReadDir(modelDir)
 	return err == nil && len(entries) > 0
 }
 
-// DownloadModel downloads the LFM2.5 model by running download_model.py via uv.
+// DownloadModel downloads the default catalog model.
 func DownloadModel(serverDir string) error {
+	def := DefaultCatalogModel()
+	if def == nil {
+		return fmt.Errorf("no default model in catalog")
+	}
+	return DownloadCatalogModel(serverDir, *def)
+}
+
+// DownloadCatalogModel downloads a specific model from the catalog using uv.
+func DownloadCatalogModel(serverDir string, model CatalogModel) error {
 	uv := uvPath()
 	if uv == "" {
 		uv = "uv"
 	}
-	cmd := exec.Command(uv, "run", "python", "download_model.py")
+
+	// Ensure the models directory exists
+	if err := os.MkdirAll(filepath.Join(serverDir, "models"), 0o755); err != nil {
+		return fmt.Errorf("creating models directory: %w", err)
+	}
+
+	localDir := filepath.Join("models", model.DirName)
+	cmd := exec.Command(uv, "run", "python", "download_model.py",
+		"--repo-id", model.HFRepoID,
+		"--local-dir", localDir,
+	)
 	cmd.Dir = serverDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("model download failed: %w", err)
+		return fmt.Errorf("downloading %s: %w", model.ID, err)
 	}
 	return nil
 }
 
-// PromptAndDownloadModel asks the user whether to download the ~1.2 GB model
-// and, if confirmed, calls DownloadModel.
-func PromptAndDownloadModel(serverDir string) error {
+// PromptAndDownloadCatalogModel asks the user whether to download the model
+// and, if confirmed, downloads it and registers it in the config.
+func PromptAndDownloadCatalogModel(serverDir string, model CatalogModel) error {
 	fmt.Println()
-	fmt.Println("  The LFM2.5 model is required for local inference (~1.2 GB download).")
+	fmt.Printf("  The %s model is required for local inference (%s download).\n", model.DisplayName, model.SizeDescription)
 	fmt.Print("  Download now? [y/N] ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -194,16 +222,51 @@ func PromptAndDownloadModel(serverDir string) error {
 	if answer != "y" {
 		fmt.Println()
 		fmt.Println("  Skipping model download. To download later, run:")
-		fmt.Printf("    crust install-model\n")
+		fmt.Printf("    crust install-model %s\n", model.ID)
 		return nil
 	}
 
-	fmt.Println("  Downloading model from HuggingFace...")
-	if err := DownloadModel(serverDir); err != nil {
+	fmt.Printf("  Downloading %s from HuggingFace...\n", model.ID)
+	if err := DownloadCatalogModel(serverDir, model); err != nil {
 		return err
 	}
-	fmt.Println("  Model downloaded successfully")
+
+	// Register in config.yaml
+	root, _, err := ReadPyConfig(serverDir)
+	if err != nil {
+		return fmt.Errorf("updating config: %w", err)
+	}
+
+	entry := PyModelEntry{
+		ID:            model.ID,
+		Backend:       model.Backend,
+		ModelPath:     filepath.Join("models", model.DirName), // Relative path
+		PromptModelID: model.PromptModelID,
+		Enabled:       true,
+	}
+
+	if err := AddModelEntry(root, entry); err != nil {
+		// Ignore "already exists" error
+		if !strings.Contains(err.Error(), "already exists") {
+			return fmt.Errorf("adding model to config: %w", err)
+		}
+	} else {
+		if err := WritePyConfig(serverDir, root); err != nil {
+			return fmt.Errorf("saving config: %w", err)
+		}
+	}
+
+	fmt.Println("  Model downloaded and configured successfully")
 	return nil
+}
+
+// PromptAndDownloadModel acts as a backward-compatible wrapper.
+func PromptAndDownloadModel(serverDir string) error {
+	def := DefaultCatalogModel()
+	if def == nil {
+		return fmt.Errorf("no default model")
+	}
+	return PromptAndDownloadCatalogModel(serverDir, *def)
 }
 
 // writeVersionMarker records the current version so subsequent runs skip setup.

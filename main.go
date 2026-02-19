@@ -375,12 +375,15 @@ func runStart(args []string) {
 	fmt.Println("  crust stop    - Stop crust")
 }
 
-// runInstallModel handles the install-model subcommand, which downloads the
-// LFM2.5 model for local inference. Useful when the user skipped the download
-// during initial setup.
+// runInstallModel handles the install-model subcommand, which manages
+// local LFM models (download, link, remove, list).
 func runInstallModel(args []string) {
 	installFlags := flag.NewFlagSet("install-model", flag.ExitOnError)
-	force := installFlags.Bool("force", false, "Download without confirmation prompt")
+	force := installFlags.Bool("force", false, "Skip confirmation prompts")
+	list := installFlags.Bool("list", false, "List all models")
+	link := installFlags.String("link", "", "Link an existing model directory")
+	remove := installFlags.String("remove", "", "Unregister a model")
+	id := installFlags.String("id", "", "Model ID (default: lfm2.5)")
 	_ = installFlags.Parse(args)
 
 	if runtime.GOOS != "darwin" {
@@ -394,26 +397,249 @@ func runInstallModel(args []string) {
 		os.Exit(1)
 	}
 
+	// Ensure basic setup is done (config.yaml exists)
 	if !setup.IsServerReady(serverDir) {
 		fmt.Fprintln(os.Stderr, "LFM server is not set up yet.")
-		fmt.Fprintln(os.Stderr, "Run 'crust start' first to complete initial setup, then re-run this command.")
+		fmt.Fprintln(os.Stderr, "Run 'crust start' first to complete initial setup.")
 		os.Exit(1)
 	}
 
-	if setup.ModelExists(serverDir) {
-		fmt.Printf("Model already installed: %s/models/%s\n", serverDir, setup.ModelName)
+	if *list {
+		listModels(serverDir)
 		return
 	}
 
-	if *force {
-		fmt.Println("Downloading LFM2.5 model (~1.2 GB)...")
-		if err := setup.DownloadModel(serverDir); err != nil {
+	if *remove != "" {
+		removeModel(serverDir, *remove, *force)
+		return
+	}
+
+	if *link != "" {
+		if *id == "" {
+			fmt.Fprintln(os.Stderr, "Error: --id is required when using --link")
+			os.Exit(1)
+		}
+		linkModel(serverDir, *id, *link)
+		return
+	}
+
+	// Determine model ID to install
+	modelID := *id
+	if modelID == "" {
+		if installFlags.NArg() > 0 {
+			modelID = installFlags.Arg(0)
+		} else {
+			def := setup.DefaultCatalogModel()
+			if def != nil {
+				modelID = def.ID
+			}
+		}
+	}
+
+	if modelID == "" {
+		fmt.Fprintln(os.Stderr, "Error: no model ID specified")
+		os.Exit(1)
+	}
+
+	installModel(serverDir, modelID, *force)
+}
+
+func listModels(serverDir string) {
+	_, entries, err := setup.ReadPyConfig(serverDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Models:")
+	fmt.Printf("  %-12s %-12s %-50s %s\n", "ID", "Status", "Path", "Size")
+
+	// Helper to find entry
+	findEntry := func(id string) *setup.PyModelEntry {
+		for _, e := range entries {
+			if e.ID == id {
+				return &e
+			}
+		}
+		return nil
+	}
+
+	// List catalog models
+	for _, id := range setup.CatalogIDs() {
+		cat := setup.LookupCatalogModel(id)
+		entry := findEntry(id)
+
+		status := "[available]"
+		path := "--"
+		size := cat.SizeDescription
+
+		if entry != nil {
+			status = "[installed]"
+			path = entry.ModelPath
+			// Check if it's the standard path
+			if !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "~") {
+				path = filepath.Join("~/.crust/lfm25_server", path)
+			}
+		}
+
+		fmt.Printf("  %-12s %-12s %-50s %s\n", id, status, truncatePath(path, 50), size)
+	}
+
+	// List installed models not in catalog
+	for _, entry := range entries {
+		if setup.LookupCatalogModel(entry.ID) == nil {
+			path := entry.ModelPath
+			fmt.Printf("  %-12s %-12s %-50s %s\n", entry.ID, "[linked]", truncatePath(path, 50), "(external)")
+		}
+	}
+}
+
+func truncatePath(path string, maxLen int) string {
+	if len(path) <= maxLen {
+		return path
+	}
+	return "..." + path[len(path)-(maxLen-3):]
+}
+
+func removeModel(serverDir, id string, force bool) {
+	root, _, err := setup.ReadPyConfig(serverDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !force {
+		fmt.Printf("Remove model %q? Files will NOT be deleted. [y/N] ", id)
+		var response string
+		_, _ = fmt.Scanln(&response)
+		if strings.ToLower(response) != "y" {
+			fmt.Println("Canceled.")
+			return
+		}
+	}
+
+	if err := setup.RemoveModelEntry(root, id); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := setup.WritePyConfig(serverDir, root); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Model %q removed from config.\n", id)
+	fmt.Println("Restart the server for changes to take effect.")
+}
+
+func linkModel(serverDir, id, path string) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid path: %v\n", err)
+		os.Exit(1)
+	}
+
+	if _, err := os.Stat(absPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Path does not exist: %v\n", err)
+		os.Exit(1)
+	}
+
+	root, _, err := setup.ReadPyConfig(serverDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Default prompt model ID
+	promptID := "lfm2.5" // sane default
+	// Try to match with catalog
+	if cat := setup.LookupCatalogModel(id); cat != nil {
+		promptID = cat.PromptModelID
+	}
+
+	entry := setup.PyModelEntry{
+		ID:            id,
+		Backend:       "mlx", // Assume MLX for now
+		ModelPath:     absPath,
+		PromptModelID: promptID,
+		Enabled:       true,
+	}
+
+	if err := setup.AddModelEntry(root, entry); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := setup.WritePyConfig(serverDir, root); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Model %q linked to %s\n", id, absPath)
+	fmt.Println("Restart the server for changes to take effect.")
+}
+
+func installModel(serverDir, id string, force bool) {
+	cat := setup.LookupCatalogModel(id)
+	if cat == nil {
+		fmt.Fprintf(os.Stderr, "Model %q not found in catalog.\n", id)
+		os.Exit(1)
+	}
+
+	// Check if already installed
+	// Note: ModelExistsByDir checks if the directory exists.
+	// We might want to check if it's in the config too, but technically
+	// we can re-install (re-register) if it's missing from config.
+	if setup.ModelExistsByDir(serverDir, cat.DirName) {
+		// Check if in config
+		_, entries, _ := setup.ReadPyConfig(serverDir)
+		found := false
+		for _, e := range entries {
+			if e.ID == id {
+				found = true
+				break
+			}
+		}
+
+		if found {
+			fmt.Printf("Model %q is already installed.\n", id)
+			return
+		}
+		// If files exist but not in config, fall through to register
+	}
+
+	if force {
+		fmt.Printf("Downloading %s...\n", cat.ID)
+		if err := setup.DownloadCatalogModel(serverDir, *cat); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("Model downloaded successfully.")
+
+		// Register in config
+		root, _, err := setup.ReadPyConfig(serverDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading config: %v\n", err)
+			return
+		}
+
+		entry := setup.PyModelEntry{
+			ID:            cat.ID,
+			Backend:       cat.Backend,
+			ModelPath:     filepath.Join("models", cat.DirName),
+			PromptModelID: cat.PromptModelID,
+			Enabled:       true,
+		}
+
+		if err := setup.AddModelEntry(root, entry); err != nil {
+			// Ignore duplicate
+		} else {
+			if err := setup.WritePyConfig(serverDir, root); err != nil {
+				fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+			}
+		}
+		fmt.Println("Model installed and configured.")
 	} else {
-		if err := setup.PromptAndDownloadModel(serverDir); err != nil {
+		if err := setup.PromptAndDownloadCatalogModel(serverDir, *cat); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -477,10 +703,19 @@ func runDaemon(cfg *config.Config, logLevel string, noColor, disableBuiltin bool
 	}
 
 	if cfg.Rules.Enabled {
+		// Collect model paths for protection
+		var modelPaths []string
+		if serverDir, err := setup.DefaultServerDir(); err == nil {
+			if paths, err := setup.CollectModelPaths(serverDir); err == nil {
+				modelPaths = paths
+			}
+		}
+
 		engineCfg := rules.EngineConfig{
 			UserRulesDir:   rulesDir,
 			DisableBuiltin: cfg.Rules.DisableBuiltin,
 			APIPort:        cfg.API.Port,
+			ModelPaths:     modelPaths,
 		}
 
 		ruleEngine, err := rules.NewEngine(engineCfg)

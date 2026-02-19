@@ -539,3 +539,71 @@ func TestCompileRegex(t *testing.T) {
 		})
 	}
 }
+
+func TestGenerateProtectionRules_WithModelPaths(t *testing.T) {
+	cfg := EngineConfig{
+		UserRulesDir: "/home/user/.crust/rules",
+		ModelPaths:   []string{"/opt/models/LFM", "/home/user/my-models/Llama"},
+	}
+
+	rules := generateProtectionRules(cfg)
+
+	// Expect 2 default rules + 2 model rules = 4 rules
+	if len(rules) != 4 {
+		t.Errorf("Expected 4 rules, got %d", len(rules))
+	}
+
+	foundLFM := false
+	foundLlama := false
+
+	for _, r := range rules {
+		if strings.Contains(r.Name, "protect-model-path") {
+			if len(r.Block.Paths) > 0 {
+				path := r.Block.Paths[0]
+				if strings.Contains(path, "/opt/models/LFM") {
+					foundLFM = true
+				}
+				if strings.Contains(path, "/home/user/my-models/Llama") {
+					foundLlama = true
+				}
+			}
+			// Check actions
+			hasWrite := false
+			for _, op := range r.Actions {
+				if op == OpWrite {
+					hasWrite = true
+				}
+			}
+			if !hasWrite {
+				t.Error("Model protection rule should block write")
+			}
+		}
+	}
+
+	if !foundLFM {
+		t.Error("Did not find protection rule for /opt/models/LFM")
+	}
+	if !foundLlama {
+		t.Error("Did not find protection rule for /home/user/my-models/Llama")
+	}
+}
+
+func TestGenerateProtectionRules_SkipsCrustPaths(t *testing.T) {
+	cfg := EngineConfig{
+		UserRulesDir: "/home/user/.crust/rules",
+		ModelPaths:   []string{"/home/user/.crust/lfm25_server/models/default"},
+	}
+
+	rules := generateProtectionRules(cfg)
+
+	// Expect 2 default rules, 0 model rules (because it's under .crust)
+	if len(rules) != 2 {
+		t.Errorf("Expected 2 rules, got %d", len(rules))
+	}
+
+	for _, r := range rules {
+		if strings.Contains(r.Name, "protect-model-path") {
+			t.Error("Should not generate model protection rule for path under .crust")
+		}
+	}
+}

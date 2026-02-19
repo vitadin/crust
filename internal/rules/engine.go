@@ -76,7 +76,8 @@ type CompiledRule struct {
 type EngineConfig struct {
 	UserRulesDir   string
 	DisableBuiltin bool
-	APIPort        int // Management API port (for dynamic protection rules)
+	APIPort        int      // Management API port (for dynamic protection rules)
+	ModelPaths     []string // Absolute paths to model directories
 }
 
 // ReloadCallback is called after rules are reloaded
@@ -216,7 +217,32 @@ func generateProtectionRules(cfg EngineConfig) []Rule {
 		Source:   SourceBuiltin,
 	})
 
+	// Rule 3: Protect external model paths
+	for i, modelPath := range cfg.ModelPaths {
+		// Models under ~/.crust/ are already covered by protect-crust rule
+		if isUnderCrustDir(modelPath) {
+			continue
+		}
+		rules = append(rules, Rule{
+			Name:        fmt.Sprintf("protect-model-path-%d", i),
+			Description: fmt.Sprintf("Protect external model directory %s", modelPath),
+			Block: Block{
+				Paths: []string{modelPath + "/**"},
+			},
+			Actions:  []Operation{OpWrite, OpDelete, OpMove},
+			Message:  fmt.Sprintf("BLOCKED: Cannot modify model files at %s", modelPath),
+			Severity: SeverityCritical,
+			Source:   SourceBuiltin,
+		})
+	}
+
 	return rules
+}
+
+// isUnderCrustDir checks if the path is inside the ~/.crust directory.
+// This is a heuristic to avoid duplicate rules for models already protected by the main protect-crust rule.
+func isUnderCrustDir(path string) bool {
+	return strings.Contains(path, "/.crust/")
 }
 
 // ReloadUserRules reloads rules from user directory.
