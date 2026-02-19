@@ -14,7 +14,9 @@ endif
 # Platforms for release
 PLATFORMS = darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
-.PHONY: all build clean test test-unit test-e2e test-all test-data release install lint vulncheck semgrep help build-bpf install-bpf uninstall-bpf
+LFM_DIR := services/lfm25_server
+
+.PHONY: all build clean test test-go test-python test-unit test-e2e test-all test-data release install lint vulncheck semgrep help build-bpf install-bpf uninstall-bpf lfm-start
 
 all: build
 
@@ -22,17 +24,24 @@ all: build
 build:
 	go build $(LDFLAGS) -o $(BINARY_NAME) .
 
-## Run unit tests
+## Run all unit tests (Go + Python)
 test: test-unit
 
-test-unit:
+test-unit: test-go test-python
+
+## Run Go unit tests
+test-go:
 	go test -v ./...
+
+## Run Python unit tests (LFM25 server)
+test-python:
+	$(MAKE) -C $(LFM_DIR) test
 
 ## Run E2E sandbox tests
 test-e2e: test-data
 	go test -v -tags=sandbox_e2e -timeout=5m ./internal/sandbox/...
 
-## Run all tests (unit + E2E)
+## Run all tests (Go unit + Python unit + E2E)
 test-all: test-unit test-e2e
 	@echo "All tests complete"
 
@@ -118,6 +127,10 @@ release: clean
 	rm -rf $$output; \
 	echo "Created: $$output.tar.gz"
 
+## Start the LFM25 inference server (requires uv env in services/lfm25_server/)
+lfm-start:
+	$(MAKE) -C $(LFM_DIR) run ARGS="--config config.yaml"
+
 ## Show help
 help:
 	@echo "Crust Makefile"
@@ -126,10 +139,13 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  build           Build for current platform"
-	@echo "  test            Run unit tests (alias for test-unit)"
-	@echo "  test-unit       Run unit tests"
+	@echo "  test            Run all unit tests (Go + Python)"
+	@echo "  test-unit       Run all unit tests (Go + Python)"
+	@echo "  test-go         Run Go unit tests only"
+	@echo "  test-python     Run Python unit tests only (LFM25 server)"
 	@echo "  test-e2e        Run E2E sandbox tests"
 	@echo "  test-all        Run all tests (unit + E2E)"
+	@echo "  lfm-start       Start the LFM25 inference server"
 	@echo "  lint            Run Go linter"
 	@echo "  vulncheck       Check deps for known CVEs (govulncheck)"
 	@echo "  semgrep         Run semgrep SAST scan"

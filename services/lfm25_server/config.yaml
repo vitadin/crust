@@ -1,0 +1,45 @@
+# LFM2.5 Server Configuration
+# All values here are overridable via CLI flags (see --help).
+
+# ── Server ───────────────────────────────────────────────────────────────────
+host: "127.0.0.1"      # Never change to 0.0.0.0 — this is a local-only service
+port: 8765
+log_level: "INFO"      # DEBUG | INFO | WARNING | ERROR
+json_logs: false
+socket_timeout_s: 30
+listen_backlog: 64
+request_max_body_bytes: 1048576
+
+# ── Models ───────────────────────────────────────────────────────────────────
+# Add more entries here to register additional local models.
+default_model_id: "lfm2.5"
+models:
+  - id: "lfm2.5"
+    backend: "mlx"
+    model_path: "./models/LFM2.5-1.2B-Thinking-MLX-8bit"
+    prompt_model_id: "lfm2.5"
+    enabled: true
+    generation_defaults: {}
+
+# ── Memory / idle management ─────────────────────────────────────────────────
+# The model is loaded on first request and kept in memory until idle for
+# `idle_timeout_s` seconds. Set to 0 to disable auto-unload.
+idle_timeout_s: 300        # 5 minutes of inactivity → unload
+idle_check_interval_s: 30  # How often the idle monitor polls
+generation_wait_timeout_s: 60
+max_queue_waiters: 16
+shutdown_wait_timeout_s: 5
+
+# ── Generation defaults ───────────────────────────────────────────────────────
+# These are used when a request does not supply its own values.
+max_tokens: 1024
+temperature: 0.6       # Lower = more focused output (good for correction tasks)
+top_k: 50
+top_p: 0.95
+repetition_penalty: 1.05
+repetition_context_size: 20
+
+# ── Response ──────────────────────────────────────────────────────────────────
+# Whether to include the model's <think>…</think> reasoning in responses.
+# Individual requests can override this field.
+include_thinking: false

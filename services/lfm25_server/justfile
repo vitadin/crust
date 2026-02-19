@@ -1,0 +1,53 @@
+# Local LLM server task runner (https://github.com/casey/just)
+
+default: help
+
+help:
+    @just --list
+
+# Install dependencies from lockfile.
+install:
+    uv sync --frozen
+
+# Sync environment and allow lockfile updates.
+sync:
+    uv sync
+
+# Update lockfile.
+lock:
+    uv lock
+
+# Run server via package entry point.
+run *args:
+    uv run python -m lfm25_server {{args}}
+
+# Run server via convenience script.
+run-main *args:
+    uv run python main.py {{args}}
+
+# Run full unit test suite.
+test:
+    uv run python -m unittest discover -s tests -v
+
+# Run one unittest target, e.g.:
+# just test-one tests.test_handler.HandlerTests
+test-one target:
+    uv run python -m unittest -v {{target}}
+
+# Lightweight sanity checks without running model inference.
+check:
+    uv run python -m compileall lfm25_server tests
+
+# Show project dependency tree.
+deps:
+    uv tree
+
+# Show working tree status.
+status:
+    git status --short --branch
+
+# Clean local caches and build artifacts.
+clean:
+    find . -type d -name "__pycache__" -prune -exec rm -rf {} +
+    find . -type f -name "*.py[co]" -delete
+    rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov build dist .eggs *.egg-info

@@ -26,3 +26,12 @@ internal/sandbox/bpf/c/vmlinux.h
 
 # Claude settings
 .claude/settings.local.json
+
+# LFM25 server (Python)
+services/lfm25_server/models/
+services/lfm25_server/.venv/
+services/lfm25_server/**/__pycache__/
+services/lfm25_server/__pycache__/
+services/lfm25_server/**/*.pyc
+services/lfm25_server/*.pyc
+services/lfm25_server/.cache/
