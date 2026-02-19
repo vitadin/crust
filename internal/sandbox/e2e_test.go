@@ -19,7 +19,22 @@ func getTestDataDir() string {
 	if dir := os.Getenv("TEST_DATA_DIR"); dir != "" {
 		return dir
 	}
-	return "/test-data"
+	// Try to find test-data in project root
+	dir, err := os.Getwd()
+	if err == nil {
+		for {
+			target := filepath.Join(dir, "test-data")
+			if _, err := os.Stat(target); err == nil {
+				return target
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+	return "./test-data"
 }
 
 // getBlockedDataDir returns the test data directory for BLOCKED files.
@@ -37,8 +52,8 @@ func getBlockedDataDir() string {
 func setupTestSandbox(t *testing.T) *Sandbox {
 	t.Helper()
 
-	// Ensure bakelens-sandbox helper is found
-	setupBakelensSandboxPath(t)
+	// Ensure sandbox helper is found
+	setupSandboxHelperPath(t)
 
 	profilePath := filepath.Join(t.TempDir(), "sandbox.sb")
 	mapper := NewMapper(profilePath)

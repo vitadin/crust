@@ -78,8 +78,15 @@ var helperExecPaths = []string{
 }
 
 // findBakelensSandbox locates the bakelens-sandbox binary.
-// Search order: user-local → system paths → relative to binary.
+// Search order: env override -> user-local → system paths → relative to binary.
 func findBakelensSandbox() (string, error) {
+	// Check environment variable override (primarily for tests)
+	if path := os.Getenv("CRUST_SANDBOX_HELPER_PATH"); path != "" {
+		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+			return path, nil
+		}
+	}
+
 	// Check user-local paths first (~/.local/libexec/crust/bakelens-sandbox)
 	if home, err := os.UserHomeDir(); err == nil {
 		userPath := filepath.Join(home, ".local", "libexec", "crust", helperBinaryName)

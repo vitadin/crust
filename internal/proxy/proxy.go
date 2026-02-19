@@ -37,12 +37,42 @@ type RequestBody struct {
 	Input    json.RawMessage  `json:"input,omitempty"` // Responses API: input items
 }
 
-// ToolDefinition represents a tool definition in the request
+// ToolDefinition represents a tool definition in the request.
+// Supports both Anthropic (direct fields) and OpenAI (nested in "function") formats.
 type ToolDefinition struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"` // Anthropic format
 	Parameters  json.RawMessage `json:"parameters,omitempty"`   // OpenAI format
+}
+
+func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
+	// Try standard format first (Anthropic)
+	type Alias ToolDefinition
+	var standard struct {
+		Alias
+		Type     string `json:"type"`
+		Function *struct {
+			Name        string          `json:"name"`
+			Description string          `json:"description,omitempty"`
+			Parameters  json.RawMessage `json:"parameters"`
+		} `json:"function"`
+	}
+
+	if err := json.Unmarshal(data, &standard); err != nil {
+		return err
+	}
+
+	*t = ToolDefinition(standard.Alias)
+
+	// If it's OpenAI format, extract from Function
+	if standard.Type == "function" && standard.Function != nil {
+		t.Name = standard.Function.Name
+		t.Description = standard.Function.Description
+		t.Parameters = standard.Function.Parameters
+	}
+
+	return nil
 }
 
 // RequestMessage represents a message in the request

@@ -38,9 +38,9 @@ func TestSandboxCostReport(t *testing.T) {
 		t.Fatal("FATAL: Sandbox not supported on this platform. Requires Linux 5.13+ or macOS")
 	}
 
-	// Ensure bakelens-sandbox helper is found
-	helperPath := setupBakelensSandboxPath(t)
-	t.Logf("Using bakelens-sandbox helper: %s", helperPath)
+	// Ensure sandbox helper is found
+	helperPath := setupSandboxHelperPath(t)
+	t.Logf("Using sandbox helper: %s", helperPath)
 
 	// Suppress sandbox stderr output during command execution
 	restore := suppressOutput()
@@ -251,38 +251,6 @@ func suppressOutput() func() {
 	}
 }
 
-// setupBakelensSandboxPath finds the bakelens-sandbox helper binary.
-// Returns the path to the helper or skips the test.
-func setupBakelensSandboxPath(t testing.TB) string {
-	// Find project root by looking for go.mod
-	dir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Failed to get working directory: %v", err)
-	}
-
-	// Walk up to find project root
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			break
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatal("Could not find project root (go.mod)")
-		}
-		dir = parent
-	}
-
-	// Check for bakelens-sandbox Rust binary
-	helperPath := filepath.Join(dir, "cmd", "bakelens-sandbox", "target", "release", "bakelens-sandbox")
-	if _, err := os.Stat(helperPath); err != nil {
-		t.Skipf("bakelens-sandbox not found at %s. Build it with: make build-sandbox", helperPath)
-	}
-
-	// Inject into helperExecPaths so findBakelensSandbox() finds it
-	helperExecPaths = append([]string{helperPath}, helperExecPaths...)
-	return helperPath
-}
-
 // BenchmarkSandboxProfileGeneration benchmarks sandbox profile creation.
 func BenchmarkSandboxProfileGeneration(b *testing.B) {
 	b.ReportAllocs()
@@ -333,8 +301,8 @@ func BenchmarkCommandExecution(b *testing.B) {
 		b.Fatal("Sandbox not supported: requires Linux 5.13+ with Landlock")
 	}
 
-	// Ensure bakelens-sandbox helper is found
-	setupBakelensSandboxPath(b)
+	// Ensure sandbox helper is found
+	setupSandboxHelperPath(b)
 
 	// Suppress sandbox stderr output during benchmarks
 	restore := suppressOutput()
@@ -380,8 +348,8 @@ func BenchmarkAllBuiltinRules(b *testing.B) {
 		b.Fatal("Sandbox not supported: requires Linux 5.13+ with Landlock")
 	}
 
-	// Ensure bakelens-sandbox helper is found
-	setupBakelensSandboxPath(b)
+	// Ensure sandbox helper is found
+	setupSandboxHelperPath(b)
 
 	restore := suppressOutput()
 	defer restore()
@@ -532,8 +500,8 @@ func TestParentProcessNotRestricted(t *testing.T) {
 		t.Fatal("Sandbox not supported: requires Linux 5.13+ with Landlock")
 	}
 
-	// Ensure bakelens-sandbox helper is found
-	setupBakelensSandboxPath(t)
+	// Ensure sandbox helper is found
+	setupSandboxHelperPath(t)
 
 	// Create sandbox
 	profilePath := filepath.Join(t.TempDir(), "sandbox.sb")

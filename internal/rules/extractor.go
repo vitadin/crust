@@ -202,13 +202,15 @@ func (e *Extractor) Extract(toolName string, args json.RawMessage) ExtractedInfo
 	switch toolLower {
 	case "bash", "exec":
 		e.extractBashCommand(&info)
-	case "read", "read_file":
+	case "read", "read_file", "list_directory", "ls":
 		e.extractReadTool(&info)
 	case "write", "write_file":
 		e.extractWriteTool(&info)
+	case "delete", "delete_file", "remove":
+		e.extractDeleteTool(&info)
 	case "edit":
 		e.extractEditTool(&info)
-	case "webfetch", "web_fetch", "web_search", "browser":
+	case "webfetch", "web_fetch", "web_search", "browser", "fetch_url":
 		e.extractWebFetchTool(&info)
 	default:
 		// Unknown tool (including MCP): only extract generic paths
@@ -415,6 +417,12 @@ func deduplicateStrings(items []string) []string {
 // extractReadTool extracts info from Read/read_file tool
 func (e *Extractor) extractReadTool(info *ExtractedInfo) {
 	info.Operation = OpRead
+	e.extractPathFields(info)
+}
+
+// extractDeleteTool extracts info from delete/delete_file tool
+func (e *Extractor) extractDeleteTool(info *ExtractedInfo) {
+	info.Operation = OpDelete
 	e.extractPathFields(info)
 }
 

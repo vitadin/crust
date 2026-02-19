@@ -16,7 +16,7 @@ PLATFORMS = darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
 LFM_DIR := services/lfm25_server
 
-.PHONY: all build clean test test-go test-python test-unit test-e2e test-all test-data release install lint vulncheck semgrep help build-bpf install-bpf uninstall-bpf lfm-start
+.PHONY: all build clean test test-go test-python test-unit test-e2e test-sandbox-e2e test-daemon-e2e test-all test-data release install lint vulncheck semgrep help build-bpf install-bpf uninstall-bpf lfm-start
 
 all: build
 
@@ -38,8 +38,15 @@ test-python:
 	$(MAKE) -C $(LFM_DIR) test
 
 ## Run E2E sandbox tests
-test-e2e: test-data
+test-sandbox-e2e: test-data
 	go test -v -tags=sandbox_e2e -timeout=5m ./internal/sandbox/...
+
+## Run E2E daemon tests
+test-daemon-e2e:
+	go test -v ./internal/e2e/...
+
+## Run all E2E tests
+test-e2e: test-sandbox-e2e test-daemon-e2e
 
 ## Run all tests (Go unit + Python unit + E2E)
 test-all: test-unit test-e2e
@@ -47,21 +54,20 @@ test-all: test-unit test-e2e
 
 ## Create test data for E2E tests
 test-data:
-	@if [ ! -d /test-data ]; then \
+	@if [ ! -d test-data ]; then \
 		echo "Creating test data..."; \
-		sudo mkdir -p /test-data/.ssh /test-data/secrets /test-data/project; \
-		echo "SECRET=test" | sudo tee /test-data/.env > /dev/null; \
-		echo "LOCAL=test" | sudo tee /test-data/.env.local > /dev/null; \
-		echo "fake-rsa-key" | sudo tee /test-data/.ssh/id_rsa > /dev/null; \
-		echo "fake-ed25519" | sudo tee /test-data/.ssh/id_ed25519 > /dev/null; \
-		echo '{"key":"secret"}' | sudo tee /test-data/secrets/credentials.json > /dev/null; \
-		echo "password: test" | sudo tee /test-data/secrets/secrets.yaml > /dev/null; \
-		echo "package main" | sudo tee /test-data/project/main.go > /dev/null; \
-		echo "# README" | sudo tee /test-data/project/README.md > /dev/null; \
-		echo "hello" | sudo tee /test-data/project/data.txt > /dev/null; \
-		sudo chmod -R 755 /test-data; \
-		sudo chown -R $$USER /test-data 2>/dev/null || true; \
-		echo "Test data created at /test-data"; \
+		mkdir -p test-data/.ssh test-data/secrets test-data/project; \
+		echo "SECRET=test" > test-data/.env; \
+		echo "LOCAL=test" > test-data/.env.local; \
+		echo "fake-rsa-key" > test-data/.ssh/id_rsa; \
+		echo "fake-ed25519" > test-data/.ssh/id_ed25519; \
+		echo '{"key":"secret"}' > test-data/secrets/credentials.json; \
+		echo "password: test" > test-data/secrets/secrets.yaml; \
+		echo "package main" > test-data/project/main.go; \
+		echo "# README" > test-data/project/README.md; \
+		echo "hello" > test-data/project/data.txt; \
+		chmod -R 755 test-data; \
+		echo "Test data created at ./test-data"; \
 	fi
 
 ## Run Go linter
@@ -108,6 +114,10 @@ clean:
 	rm -f $(BINARY_NAME)
 	rm -f bpf-helper
 	rm -rf $(BUILD_DIR)
+	rm -f coverage.out
+	rm -rf test-data
+	find . -name "*.test" -delete
+	find . -name "__pycache__" -type d -exec rm -rf {} +
 
 ## Install to /usr/local/bin
 install: build
@@ -138,23 +148,25 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  build           Build for current platform"
-	@echo "  test            Run all unit tests (Go + Python)"
-	@echo "  test-unit       Run all unit tests (Go + Python)"
-	@echo "  test-go         Run Go unit tests only"
-	@echo "  test-python     Run Python unit tests only (LFM25 server)"
-	@echo "  test-e2e        Run E2E sandbox tests"
-	@echo "  test-all        Run all tests (unit + E2E)"
-	@echo "  lfm-start       Start the LFM25 inference server"
-	@echo "  lint            Run Go linter"
-	@echo "  vulncheck       Check deps for known CVEs (govulncheck)"
-	@echo "  semgrep         Run semgrep SAST scan"
-	@echo "  clean           Clean build artifacts"
-	@echo "  install         Install to /usr/local/bin"
-	@echo "  build-bpf       Build bpf-helper (Linux only)"
-	@echo "  install-bpf     Install bpf-helper + systemd service"
-	@echo "  uninstall-bpf   Remove bpf-helper + systemd service"
-	@echo "  release         Build release tarball"
+	@echo "  build             Build for current platform"
+	@echo "  test              Run all unit tests (Go + Python)"
+	@echo "  test-unit         Run all unit tests (Go + Python)"
+	@echo "  test-go           Run Go unit tests only"
+	@echo "  test-python       Run Python unit tests only (LFM25 server)"
+	@echo "  test-e2e          Run all E2E tests (sandbox + daemon)"
+	@echo "  test-sandbox-e2e  Run E2E sandbox tests"
+	@echo "  test-daemon-e2e   Run E2E daemon tests"
+	@echo "  test-all          Run all tests (unit + E2E)"
+	@echo "  lfm-start         Start the LFM25 inference server"
+	@echo "  lint              Run Go linter"
+	@echo "  vulncheck         Check deps for known CVEs (govulncheck)"
+	@echo "  semgrep           Run semgrep SAST scan"
+	@echo "  clean             Clean build artifacts"
+	@echo "  install           Install to /usr/local/bin"
+	@echo "  build-bpf         Build bpf-helper (Linux only)"
+	@echo "  install-bpf       Install bpf-helper + systemd service"
+	@echo "  uninstall-bpf     Remove bpf-helper + systemd service"
+	@echo "  release           Build release tarball"
 	@echo ""
 	@echo "Variables:"
 	@echo "  VERSION    Release version (default: git tag or 'dev')"

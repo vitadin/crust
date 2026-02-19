@@ -61,9 +61,16 @@ func (s *Sandbox) execute(command []string) (int, error) {
 }
 
 // findBakelensSandbox searches for the bakelens-sandbox binary on macOS.
-// Uses the same trusted path strategy as Linux: user-local → system → relative to binary.
+// Uses the same trusted path strategy as Linux: env override -> user-local → system → relative to binary.
 func findBakelensSandbox() (string, error) {
 	const binaryName = "bakelens-sandbox"
+
+	// Check environment variable override (primarily for tests)
+	if path := os.Getenv("CRUST_SANDBOX_HELPER_PATH"); path != "" {
+		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+			return path, nil
+		}
+	}
 
 	// User-local
 	if home, err := os.UserHomeDir(); err == nil {

@@ -195,3 +195,13 @@ rules:
     actions: [execute]
     message: "eval/exec prevents static security analysis. Use direct commands instead."
     severity: high
+
+  # ===========================================================================
+  # 13. SSRF PROTECTION
+  # ===========================================================================
+  - name: block-ssrf-local
+    match:
+      host: "re:localhost|127\\.0\\.0\\.1|::1|0\\.0\\.0\\.0"
+    actions: [network]
+    message: "Cannot access local network services (potential SSRF)"
+    severity: critical
