@@ -4,10 +4,10 @@
 # https://getcrust.io
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/BakeLens/crust/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/vitadin/crust/main/install.sh | bash
 #
 # Or with options:
-#   curl -fsSL https://raw.githubusercontent.com/BakeLens/crust/main/install.sh | bash -s -- --version v1.0.0
+#   curl -fsSL https://raw.githubusercontent.com/vitadin/crust/main/install.sh | bash -s -- --version v1.0.0
 #
 
 set -e
@@ -21,7 +21,7 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 # Configuration
-GITHUB_REPO="BakeLens/crust"
+GITHUB_REPO="vitadin/crust"
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_NAME="crust"
 DATA_DIR="$HOME/.crust"
@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             echo "Crust Installer"
             echo ""
-            echo "Usage: curl -fsSL https://raw.githubusercontent.com/BakeLens/crust/main/install.sh | bash"
+            echo "Usage: curl -fsSL https://raw.githubusercontent.com/vitadin/crust/main/install.sh | bash"
             echo ""
             echo "Options:"
             echo "  --version, -v    Install specific version (default: latest)"
